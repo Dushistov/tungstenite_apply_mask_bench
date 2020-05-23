@@ -1,0 +1,16 @@
+[package]
+name = "tungstenite_apply_mask_bench"
+version = "0.1.0"
+authors = ["Evgeniy A. Dushistov <dushistov@mail.ru>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+
+[dev-dependencies]
+criterion = { version = "*", features=['real_blackbox'] }
+
+[[bench]]
+name = "my_benchmark"
+harness = false
