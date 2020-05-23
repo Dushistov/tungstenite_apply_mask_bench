@@ -1,16 +1,7 @@
 use std::cmp::min;
 #[allow(deprecated)]
 use std::mem::uninitialized;
-use std::ptr::copy_nonoverlapping;
-
-#[inline]
-pub fn fibonacci(n: u64) -> u64 {
-    match n {
-        0 => 1,
-        1 => 1,
-        n => fibonacci(n - 1) + fibonacci(n - 2),
-    }
-}
+use std::ptr::{copy_nonoverlapping, read_unaligned};
 
 #[inline]
 pub fn apply_mask_fallback(buf: &mut [u8], mask: [u8; 4]) {
@@ -21,7 +12,7 @@ pub fn apply_mask_fallback(buf: &mut [u8], mask: [u8; 4]) {
 
 #[inline]
 pub fn apply_mask_fast32(buf: &mut [u8], mask: [u8; 4]) {
-    let mask_u32 = u32::from_ne_bytes(mask);
+    let mask_u32: u32 = unsafe { read_unaligned(mask.as_ptr() as *const u32) };
 
     let mut ptr = buf.as_mut_ptr();
     let mut len = buf.len();
@@ -77,10 +68,31 @@ unsafe fn xor_mem(ptr: *mut u8, mask: u32, len: usize) {
     copy_nonoverlapping(&b as *const _ as *const u8, ptr, len);
 }
 
+#[inline]
+pub fn apply_mask_fast32_safe(buf: &mut [u8], mask: [u8; 4]) {
+    let mask_u32 = u32::from_ne_bytes(mask);
+
+    let (mut prefix, words, mut suffix) = unsafe { buf.align_to_mut::<u32>() };
+    apply_mask_fallback(&mut prefix, mask);
+    let head = prefix.len() & 3;
+    let mask_u32 = if head > 0 {
+        if cfg!(target_endian = "big") {
+            mask_u32.rotate_left(8 * head as u32)
+        } else {
+            mask_u32.rotate_right(8 * head as u32)
+        }
+    } else {
+        mask_u32
+    };
+    for word in words.iter_mut() {
+        *word ^= mask_u32;
+    }
+    apply_mask_fallback(&mut suffix, mask_u32.to_ne_bytes());
+}
+
 #[cfg(test)]
 mod tests {
-
-    use super::{apply_mask_fallback, apply_mask_fast32};
+    use super::*;
 
     #[test]
     fn test_apply_mask() {
@@ -99,17 +111,25 @@ mod tests {
             apply_mask_fast32(&mut masked_fast, mask);
 
             assert_eq!(masked, masked_fast);
+
+            let mut masked_fast_safe = unmasked.clone();
+            apply_mask_fast32_safe(&mut masked_fast_safe, mask);
+            assert_eq!(masked, masked_fast_safe);
         }
 
         // Check masking without alignment.
-        {
+        for off in 0..3 {
             let mut masked = unmasked.clone();
-            apply_mask_fallback(&mut masked[1..], mask);
+            apply_mask_fallback(&mut masked[off..], mask);
 
             let mut masked_fast = unmasked.clone();
-            apply_mask_fast32(&mut masked_fast[1..], mask);
+            apply_mask_fast32(&mut masked_fast[off..], mask);
 
             assert_eq!(masked, masked_fast);
+
+            let mut masked_fast_safe = unmasked.clone();
+            apply_mask_fast32_safe(&mut masked_fast_safe[off..], mask);
+            assert_eq!(masked, masked_fast_safe);
         }
     }
 }

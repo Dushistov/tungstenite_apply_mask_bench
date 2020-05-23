@@ -1,5 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
-use tungstenite_apply_mask_bench::{apply_mask_fallback, apply_mask_fast32};
+use tungstenite_apply_mask_bench::{
+    apply_mask_fallback, apply_mask_fast32, apply_mask_fast32_safe,
+};
 
 fn bench_apply_mask(c: &mut Criterion) {
     let mask = [0x6d, 0xb6, 0xb2, 0x80];
@@ -19,6 +21,13 @@ fn bench_apply_mask(c: &mut Criterion) {
             b.iter(|| {
                 let mut masked = unmasked.clone();
                 apply_mask_fast32(black_box(&mut masked[off..]), black_box(mask));
+            });
+        });
+
+        group.bench_with_input(BenchmarkId::new("fast_safe", off), &off, |b, &off| {
+            b.iter(|| {
+                let mut masked = unmasked.clone();
+                apply_mask_fast32_safe(black_box(&mut masked[off..]), black_box(mask));
             });
         });
     }
